@@ -880,8 +880,10 @@ class WP_REST_Posts_Controller extends WP_REST_Controller {
 	/**
 	 * Determine the featured image based on a request param.
 	 *
-	 * @param int $featured_image
-	 * @param int $post_id
+	 * @param $featured_image
+	 * @param $post_id
+	 *
+	 * @return bool|WP_Error
 	 */
 	protected function handle_featured_image( $featured_image, $post_id ) {
 
@@ -1110,7 +1112,8 @@ class WP_REST_Posts_Controller extends WP_REST_Controller {
 		}
 
 		if ( ! empty( $schema['properties']['featured_image'] ) ) {
-			$data['featured_image'] = (int) get_post_thumbnail_id( $post->ID );
+
+			$data['featured_image'] = $this->getFeaturedImage($post->ID);
 		}
 
 		if ( ! empty( $schema['properties']['parent'] ) ) {
@@ -1170,6 +1173,53 @@ class WP_REST_Posts_Controller extends WP_REST_Controller {
 		 * @param WP_REST_Request    $request    Request object.
 		 */
 		return apply_filters( 'rest_prepare_' . $this->post_type, $response, $post, $request );
+	}
+
+	/**
+	 * @param $postId
+	 * @return array Featured Image
+	 */
+	protected function getFeaturedImage($postId) {
+
+		$image_id = (int)get_post_thumbnail_id($postId);
+
+		// Only proceed if the post has a featured image.
+		if (!$image_id) {
+			return null;
+		}
+
+		$image = get_post( $image_id );
+
+		if ( ! $image ) {
+			return null;
+		}
+
+		// This is taken from WP_REST_Attachments_Controller::prepare_item_for_response().
+		$featured_image['id']            = $image_id;
+		$featured_image['alt_text']      = get_post_meta( $image_id, '_wp_attachment_image_alt', true );
+		$featured_image['caption']       = $image->post_excerpt;
+		$featured_image['description']   = $image->post_content;
+		$featured_image['media_type']    = wp_attachment_is_image( $image_id ) ? 'image' : 'file';
+		$featured_image['media_details'] = wp_get_attachment_metadata( $image_id );
+		$featured_image['post']          = ! empty( $image->post_parent ) ? (int) $image->post_parent : null;
+		$featured_image['source_url']    = wp_get_attachment_url( $image_id );
+
+		if ( empty( $featured_image['media_details'] ) ) {
+			$featured_image['media_details'] = new stdClass;
+		} elseif ( ! empty( $featured_image['media_details']['sizes'] ) ) {
+			$img_url_basename = wp_basename( $featured_image['source_url'] );
+			foreach ( $featured_image['media_details']['sizes'] as $size => &$size_data ) {
+				$image_src = wp_get_attachment_image_src( $image_id, $size );
+				if ( ! $image_src ) {
+					continue;
+				}
+				$size_data['source_url'] = $image_src[0];
+			}
+		} else {
+			$featured_image['media_details']['sizes'] = new stdClass;
+		}
+
+		return $featured_image;
 	}
 
 	/**
